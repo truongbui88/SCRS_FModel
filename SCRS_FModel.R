@@ -16,7 +16,7 @@ FileName <- 'SCRS_Model_Inputs 2021.xlsx'
 #---> ER_NC_CurrentHires
 #---> ER_Amo_CurrentHires
 #---> ER_Amo_ORP & New / Existing hires
-#---> DC_NewHires = 0.75
+#---> DC_NewHires = 0.15
 #---> Multiplier = 1.82%
 #---> ORP Offset = 5%
 #--->Benefit Payment Percent = 2.7%
