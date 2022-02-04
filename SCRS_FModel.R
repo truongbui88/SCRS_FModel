@@ -1,4 +1,3 @@
-################## SCRS Funding Model ##################
 library("readxl")
 library(ggplot2)
 library(tidyverse)
@@ -7,9 +6,25 @@ rm(list = ls())
 #
 #User can change these values
 StartYear <- 2019
-StartProjectionYear <- 2021
-EndProjectionYear <- 2051
-FileName <- 'SCRS_Model Inputs.xlsx'
+StartProjectionYear <- 2022
+EndProjectionYear <- 2052
+FileName <- 'SCRS_Model_Inputs 2021.xlsx'
+#Updates to Input file:
+
+#2021:
+#---> MOYNCExistNewDR & OrigDR
+#---> ER_NC_CurrentHires
+#---> ER_Amo_CurrentHires
+#---> ER_Amo_ORP & New / Existing hires
+#---> DC_NewHires = 0.75
+#---> Multiplier = 1.82%
+#---> ORP Offset = 5%
+#--->Benefit Payment Percent = 2.7%
+#--->Returns: 
+#--->  Assumed=0.077139
+#--->  Conservative=0.067904
+#--->  Volatility=0.1240112
+
 #
 #Reading Input File
 user_inputs_numeric <- read_excel(FileName, sheet = 'Numeric Inputs')
@@ -18,9 +33,13 @@ Historical_Data <- read_excel(FileName, sheet = 'Historical Data')
 Scenario_Data <- read_excel(FileName, sheet = 'Inv_Returns')
 BenefitPayments <- read_excel(FileName, sheet = 'Benefit Payments')
 PayrollData <- read_excel(FileName, sheet = 'Payroll')
+
 #
 ##################################################################################################################################################################
 #
+
+#DC_NewHires <- 0.75
+
 #Functions for later use
 #Function for Present Value for Amortization
 PresentValue = function(rate, nper, pmt) {
@@ -72,7 +91,6 @@ for(i in 1:nrow(user_inputs_character)){
 
 #Create an empty Matrix for the Projection Years
 EmptyMatrix <- matrix(0,(EndProjectionYear - StartProjectionYear + 1), 1)
-
 for(j in 1:length(colnames(Historical_Data))){
   TempMatrix <- rbind(as.matrix(Historical_Data[,j]), EmptyMatrix)
   assign(as.character(colnames(Historical_Data)[j]), TempMatrix)
@@ -99,6 +117,11 @@ AmoYearsInput_CurrentHires <- read_excel(FileName, sheet = 'Amortization_Current
 OutstandingBase_NewHires <- matrix(0,RowColCount, RowColCount + 1)
 Amortization_NewHires <- matrix(0,RowColCount, RowColCount + 1)
 AmoYearsInput_NewHires <- read_excel(FileName, sheet = 'Amortization_NewHires')
+
+#DC_NewHires
+#Vol <- user_inputs_numeric[41,3]
+#View(Historical_Data)
+#View(Scenario_Data[4,6:7])
 #
 ##################################################################################################################################################################
 #
@@ -117,7 +140,7 @@ for(i in StartIndex:length(FYE)){
   Tier3Payroll[i] <- DBLegacyPayroll[i] - Tier2Payroll[i]
   RehPayroll[i] <- (RehPayroll[i-1] + TERIPayroll[i-1])*(1 + Payroll_growth) - TERIPayroll[i]
   
-  ProjectedPayroll[i] <- ProjectedPayroll[i-1]*(1 + Payroll_ratio)
+  ProjectedPayroll[i] <- (AllCurrentHires[i] - ORPCurrentPayroll[i])*(1 + Payroll_ratio)
   ProjectedTier23Payroll[i] <- (Tier2Payroll[i] + Tier3Payroll[i])*(1 + Payroll_ratio)
   ProjectedTier4Payroll[i] <-  AllNewHires[i]*(1 + Payroll_ratio)
   
@@ -155,7 +178,7 @@ for(i in StartIndex:length(FYE)){
 
 RunModel <- function(Analysis_Type = AnalysisType, 
                      Sim_Return = SimReturn, 
-                     Sim_Volatility = Sim_Volatility, 
+                     Sim_Volatility = SimVolatility, 
                      ERPolicyCurrentHires = ER_Policy_CurrentHires, 
                      ERPolicyNewHires = ER_Policy_NewHires, 
                      Scen_Type = ScenType,
@@ -164,15 +187,15 @@ RunModel <- function(Analysis_Type = AnalysisType,
                      CostSharingAmo = CostSharing_Amo,
                      CostSharing_Pct = CostSharingPct,
                      ORPOffsetDBNC = ORPOffset_DBNC){
-  #Default is statutory, change to ADC amo policy if need be
-  if(ERPolicyCurrentHires == 'ADC'){
-    AmoYearsInput_CurrentHires[,2] <- 20
-    #AmoYearsInput_CurrentHires[1,2] <- 25
-  }
   
-  if(ERPolicyNewHires == 'ADC'){
-    AmoYearsInput_NewHires[,2] <- 20
-  }
+  #Default is statutory, change to ADC amo policy if need be
+   if(ERPolicyCurrentHires == 'ADEC'){
+     AmoYearsInput_CurrentHires[,2] <- 20
+   }
+  
+   if(ERPolicyNewHires == 'ADEC'){
+    AmoYearsInput_CurrentHires[,2] <- 20
+   }
   
   #Offset Matrix. Used later for Amortization calculation
   OffsetYears_CurrentHires <- matrix(0,RowColCount, RowColCount)
@@ -232,10 +255,11 @@ RunModel <- function(Analysis_Type = AnalysisType,
     EE_Amo_NewHires[i] <- EE_AmoRate_NewHires[i-2]*DBNewHirePayroll[i]
     ER_NC_CurrentHires[i] <- NC_CurrentHires[i-2]*DBLegacyPayroll[i] - EE_NC_CurrentHires[i]
     ER_NC_NewHires[i] <- NC_NewHires[i-2]*DBNewHirePayroll[i] - EE_NC_NewHires[i]
+    Total_Contrib_DC[i] <- DC_Contrib*(ORPCurrentPayroll[i] + ORPNewPayroll[i])
     
     #Values based on ER Policy
     if(ERPolicyCurrentHires == 'Statutory Rate'){
-      if((ADEC_Trigger == 'No') || ((ADEC_Trigger == 'Yes') && (FR_AVA[i-1] <  1))){
+      if((ADEC_Trigger == 'No') | ((ADEC_Trigger == 'Yes') && (FR_AVA[i-1] <  1))){
         ER_Amo_CurrentHires[i] <- ER_AmoRate_CurrentHires[i-2]*DBLegacyPayroll[i]
         ER_Amo_Stat_NewHires[i] <- ER_AmoRate_NewHires[i-2]*DBNewHirePayroll[i]
         ER_Amo_ORP_CurrentHires[i] <- max(ER_AmoRate_ORP[i-2],0)*ORPCurrentPayroll[i]
@@ -266,12 +290,24 @@ RunModel <- function(Analysis_Type = AnalysisType,
       ER_Amo_ADC_NewHires[i] <- max(-ER_NC_CurrentHires[i]-ER_NC_NewHires[i]-ER_Amo_CurrentHires[i],AmoRate_NewHires[i-2]*AllNewHires[i]-EE_Amo_NewHires[i])
     }
     
+    #Set default to 0 for easier coding
+    #Only code if for yes condition
+    StatContFloor[i] <- 0
+    if(StatFloor_FullFunding == 'Yes'){
+      if(max(FR_AVA[StartIndex:i-1]) < 1){
+        TotalContValue <- TotalContPost[i-2]*(TotalPayroll[i] + RehPayroll[i])
+        Cashflows <- ER_NC_CurrentHires[i] + ER_NC_NewHires[i] + ER_Amo_CurrentHires[i] + 
+          ER_Amo_Stat_NewHires[i] + ER_Amo_ADC_NewHires[i] + ER_Amo_ORP_CurrentHires[i] + 
+          ER_Amo_ORP_NewHires[i] + ER_Amo_RehRet[i] + Total_Contrib_DC[i]
+        StatContFloor[i] <- max(TotalContValue - Cashflows,0)
+      }
+    }
     #Cash Flows and Solvency Contribution
     Cashflows <- BenPayments_CurrentHires[i] + BenPayments_NewHires[i] + Refunds_CurrentHires[i] +  Refunds_NewHires[i] + 
       AdminExp_CurrentHires[i] + AdminExp_NewHires[i] + EE_NC_CurrentHires[i] + EE_NC_NewHires[i] +
       EE_Amo_NewHires[i] + EE_OtherHires[i] + ER_NC_CurrentHires[i] + ER_NC_NewHires[i] +
       ER_Amo_CurrentHires[i] + ER_Amo_Stat_NewHires[i] + ER_Amo_ADC_NewHires[i] + ER_Amo_ORP_CurrentHires[i] + 
-      ER_Amo_ORP_NewHires[i] + ER_Amo_RehRet[i]
+      ER_Amo_ORP_NewHires[i] + ER_Amo_RehRet[i] + StatContFloor[i]
     Solv_Contrib_Total[i] <- as.double(max(-(MVA[i-1]*(1+ROA_MVA[i]) + Cashflows*(1+ROA_MVA[i])^0.5) / (1+ROA_MVA[i])^0.5,0))
     Solv_Contrib_CurrentHires[i] <- Solv_Contrib_Total[i]*(AccrLiabNewDR_CurrentHires[i]/AccrLiabOrigDR_Total[i])
     Solv_Contrib_NewHires[i] <- Solv_Contrib_Total[i]*(AccrLiabNewDR_NewHires[i]/AccrLiabOrigDR_Total[i])
@@ -286,7 +322,7 @@ RunModel <- function(Analysis_Type = AnalysisType,
     #Net CF, Expected MVA, Solvency Contribution
     NetCF_CurrentHires[i] <- BenPayments_CurrentHires[i] + Refunds_CurrentHires[i] +  AdminExp_CurrentHires[i] +
       EE_NC_CurrentHires[i] + EE_OtherHires[i] + ER_NC_CurrentHires[i] + ER_Amo_CurrentHires[i] + 
-      ER_Amo_ORP_CurrentHires[i] + ER_Amo_RehRet[i] + Solv_Contrib_CurrentHires[i]
+      ER_Amo_ORP_CurrentHires[i] + ER_Amo_RehRet[i] + Solv_Contrib_CurrentHires[i] + StatContFloor[i]
     ExpInvInc_CurrentHires[i] <- (MVA_CurrentHires[i-1]*NewDR_CurrentHires[i-1]) + (NetCF_CurrentHires[i]*NewDR_CurrentHires[i-1]*0.5)
     MVA_CurrentHires[i] <- MVA_CurrentHires[i-1]*(1+ROA_MVA[i]) + NetCF_CurrentHires[i]*(1+ROA_MVA[i])^0.5
     ActualReturnMVA_CurrentHires[i] <- MVA_CurrentHires[i] - MVA_CurrentHires[i-1] - NetCF_CurrentHires[i]
@@ -334,12 +370,6 @@ RunModel <- function(Analysis_Type = AnalysisType,
     Total_Contrib_DB[i] <-  ER_NC_CurrentHires[i] + ER_NC_NewHires[i] + ER_Amo_CurrentHires[i] + ER_Amo_Stat_NewHires[i] + ER_Amo_ADC_NewHires[i] + 
       ER_Amo_ORP_CurrentHires[i] + ER_Amo_ORP_NewHires[i] + ER_Amo_RehRet[i] + Solv_Contrib_Total[i]
     
-    #if(NewHirePlan == 'DB'){
-    #  Total_Contrib_DC[i] <- 0
-    #} else if(DCForfeitures == 'Yes'){
-    Total_Contrib_DC[i] <- DC_Contrib*(ORPCurrentPayroll[i] + ORPNewPayroll[i])
-    #}
-    
     Total_Contrib[i] <- Total_Contrib_DC[i] + Total_Contrib_DB[i]
     ER_InflAdj[i] <- Total_Contrib[i] / ((1 + asum_infl)^(FYE[i] - NC_StaryYear))
     ER_Percentage[i] <- Total_Contrib[i] / (TotalPayroll[i] + RehPayroll[i])
@@ -378,7 +408,8 @@ RunModel <- function(Analysis_Type = AnalysisType,
       AnnuityFactor[i] <- 0
     } else {
       AnnuitySum <- EE_Amo_NewHires[i] + EE_OtherHires[i] + ER_Amo_CurrentHires[i] + ER_Amo_Stat_NewHires[i] +
-        ER_Amo_ADC_NewHires[i] + ER_Amo_ORP_CurrentHires[i] + ER_Amo_ORP_NewHires[i] + ER_Amo_RehRet[i] + Solv_Contrib_Total[i]
+        ER_Amo_ADC_NewHires[i] + ER_Amo_ORP_CurrentHires[i] + ER_Amo_ORP_NewHires[i] + ER_Amo_RehRet[i] + 
+        Solv_Contrib_Total[i] + StatContFloor[i]
       
       AnnuityFactor[i] <- UAL_AVA[i]*(1+NewDR_CurrentHires[i])^0.5 / AnnuitySum
     }
@@ -393,10 +424,10 @@ RunModel <- function(Analysis_Type = AnalysisType,
     MaxFundPeriod[i] <- max(MaxFundPeriod[i-1]-1,20)
     
     #Total Contribution Pre and Post Adjustment
-    if(FYE[i] <= 2021){
-      TotalContPre[i] <- TotalContPre[i-1] + MaxAdjContrib 
+    if(FYE[i] <= 2022){
+      TotalContPre[i] <- TotalContPre[i-1] + MaxAdjContrib
     } else if(FR_AVA[i-1] < ContFloor){
-      TotalContPre[i] <- TotalContPre[i-1]
+      TotalContPre[i] <-TotalContPre[i-1]
     } else {
       TotalContPre[i] <- TotalContPre[i-1] - MaxAdjContrib 
     }
@@ -408,8 +439,9 @@ RunModel <- function(Analysis_Type = AnalysisType,
     }
     
     #Employee NC, Amo Rates, etc.
-    TempValue <- min(EmployeeNC_CurrentHires[i-1]+(TotalContPost[i]-TotalContPost[i-1])/2,MaxEEContrib)
-    EmployeeNC_CurrentHires[i] <- max(TempValue,0)
+    #TempValue <- min(EmployeeNC_CurrentHires[i-1]+(TotalContPost[i]-TotalContPost[i-1])/2,MaxEEContrib)
+    #EmployeeNC_CurrentHires[i] <- max(TempValue,0)
+    EmployeeNC_CurrentHires[i] <- MaxEEContrib
     
     if(CostSharingNC == 'Yes'){
       EmployeeNC_NewHires[i] <- NC_NewHires[i]/2
@@ -424,8 +456,9 @@ RunModel <- function(Analysis_Type = AnalysisType,
     ER_AmoRate_NewHires[i] <- TotalContPost[i] - EmployerNC_NewHires[i]
     ER_AmoRate_Rehire[i] <- TotalContPost[i]
     
-    if(ORPOffsetDBNC == 'Yes'){
+    if(ORPOffsetDBNC == 'Yes' | FR_AVA[i-1] >= 1){
       ER_AmoRate_ORP[i] <- TotalContPost[i] - EmployerNC_CurrentHires[i]
+      
     } else {
       ER_AmoRate_ORP[i] <- TotalContPost[i] - ORPOffset
     }
@@ -451,25 +484,36 @@ Scenario_ER_InflAdj <- as.data.frame(FYE)
 Scenario_Total_ER <- as.data.frame(FYE)
 Scenario_AllIn_ER <- as.data.frame(FYE)
 
-Scenarios <- c('Assumption','Model','Recession','Recurring Recession')
+Scenarios <- c('Assumption','6% Constant','Recession','Recurring Recession')
 
 ############ RunModel ##############
 x <- RunModel(Scen_Type = Scenarios[1],
-                          ERPolicyCurrentHires = 'Statutory', 
-                          ERPolicyNewHires = 'Statutory',
-                          ADEC_Trigger = 'Yes',
-                          CostSharingNC = 'No',
-                          CostSharingAmo = 'No',
-                          ORPOffsetDBNC = 'Yes')
+              ERPolicyCurrentHires = 'Statutory Rate', 
+              ERPolicyNewHires = 'Statutory Rate',
+              ADEC_Trigger = 'Yes',
+              CostSharingNC = 'No',
+              CostSharingAmo = 'No',
+              ORPOffsetDBNC = 'No')
 
-View(x %>% select(Output, TotalContPost))
+#View(x %>% select(Output, 
+#                  TotalContPost, 
+#                  FR_AVA, ER_Percentage, 
+                  #EmployeeNC_NewHires, 
+                  #ER_AmoRate_NewHires, 
+                  #ER_Amo_ADC_NewHires, 
+                  #ER_Amo_CurrentHires, 
+#                  AVA, 
+#                  UAL_AVA))
 #########
 
-
 for (i in 1:length(Scenarios)){
-  NewData <- RunModel(ERPolicyCurrentHires = 'ADC', 
-                      ERPolicyNewHires = 'ADC', 
-                      Scen_Type = Scenarios[i])
+  NewData <- RunModel( Scen_Type = Scenarios[i],
+                       ERPolicyCurrentHires = 'Statutory Rate', 
+                       ERPolicyNewHires = 'Statutory Rate',
+                       ADEC_Trigger = 'Yes',
+                       CostSharingNC = 'No',
+                       CostSharingAmo = 'No',
+                       ORPOffsetDBNC = 'No')
   
   Scenario_Returns <- cbind(Scenario_Returns,NewData$ROA_MVA)
   Scenario_UAL <- cbind(Scenario_UAL,NewData$UAL_MVA_InflAdj)
@@ -512,96 +556,63 @@ ScenarioPlot <- function(Data, YAxisLabel){
     labs(y = YAxisLabel, x = 'Year') + ggtitle(YAxisLabel)
   #scale_linetype_manual(labels = '')
 }
+
+#View(Scenario_FR)
 ScenarioPlot(Scenario_FR, 'Funded Ratio (MVA)')
+#View(Scenario_UAL)
+#write_csv(Scenario_ER_Percentage, "SCRS.FModel_ERC_ADEC.csv")
 #
 ##################################################################################################################################################################
 #
-# Simulations
-# start_time <- Sys.time()
-# #Set seed insures a consistency when simulations are run multiple times
-# set.seed((1234))
-# NumberofSimulations <- 100
-# #initialize the return simulations based on years and # of simulations
-# Returns_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
-# UAL_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
-# FR_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
-# ER_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
-# 
-# #Run the simulations
-# for (i in 1:NumberofSimulations){
-#   NewData <- RunModel('Stochastic', Sim_ReturnAssumed, Sim_Volatility, 'ADC', '', c(0), 'Lv%', 'Reason')
-#   Returns_Sims[,i+1] <- NewData$ROA_MVA
-#   UAL_Sims[,i+1] <- NewData$UAL_MVA_InflAdj
-#   FR_Sims[,i+1] <- NewData$FR_MVA
-#   ER_Sims[,i+1] <- NewData$ER_Percentage
-# }
-# 
-# Simulations_Returns <- cbind(FYE,FYE,FYE)
-# Simulations_UAL <- cbind(FYE,FYE,FYE)
-# Simulations_FR <- cbind(FYE,FYE,FYE)
-# Simulations_ER <- cbind(FYE,FYE,FYE)
-# 
-# #Get the 25th, 50th, 75th percentile
-# for(i in 1:length(FYE)){
-#   Simulations_Returns[i,] <- t(quantile(Returns_Sims[i,2:ncol(Returns_Sims)],c(0.25,0.5,0.75)))
-#   Simulations_UAL[i,] <- t(quantile(UAL_Sims[i,2:ncol(UAL_Sims)],c(0.25,0.5,0.75)))
-#   Simulations_FR[i,] <- t(as.data.frame(quantile(FR_Sims[i,2:ncol(FR_Sims)],c(0.25,0.5,0.75))))
-#   Simulations_ER[i,] <- t(quantile(ER_Sims[i,2:ncol(ER_Sims)],c(0.25,0.5,0.75)))
-# }
-# 
-# #plot the graphs
-# SimulationPlot <- function(Data, FYE){
-#   Data <- (as.data.frame(Data))
-#   Data <- cbind(FYE, Data)
-#   colnames(Data) <- c('FYE','25th Percentile', '50th Percentile', '75th Percentile')
-#   ggplot(Data, aes(x = Data[,1])) +
-#     geom_line(aes(y = Data[,2]), color = "#FF6633", size = 2) +
-#     geom_line(aes(y = Data[,3]), color = "#FFCC33", size = 2) +
-#     geom_line(aes(y = Data[,4]), color = "#0066CC", size = 2)
-# }
-# SimulationPlot(Simulations_ER, FYE)
-# 
-# #For supplemental contributions
-# Scenarios <- c(0,500,1000,1500,2000)
-# ScenarioNames <- c('No Supplemental Contribution', '$0.5 Billion', '$1 Billion', '$1.5 Billion', '$2 Billion')
-# #Run the simulations for each contribution
-# for(k in 1:length(Scenarios)){
-#   for (i in 1:NumberofSimulations){
-#     NewData <- as.data.frame(RunModel('Stochastic', Sim_ReturnConservative, Sim_Volatility, 'Statutory', '', Scenarios[k], 'Lv%', 'Reason'))
-#     FR_Sims[,i+1] <- NewData$FR_MVA
-#   }
-#   
-#   #Take the simulation runs and get the probability
-#   #2050 Projections
-#   Probability80 <- sum(FR_Sims[32,] >= 0.8) / NumberofSimulations
-#   Probability100 <- sum(FR_Sims[32,] >= 1) / NumberofSimulations
-#   
-#   if(k == 1){
-#     ProbabilityData2050 <- c(Probability80,Probability100)
-#   } else {
-#     ProbabilityData2050 <- rbind(ProbabilityData2050,c(Probability80,Probability100))
-#   }
-#   
-#   #2075 Projections
-#   Probability80 <- sum(FR_Sims[nrow(FR_Sims),] >= 0.8) / NumberofSimulations
-#   Probability100 <- sum(FR_Sims[nrow(FR_Sims),] >= 1) / NumberofSimulations
-#   
-#   if(k == 1){
-#     ProbabilityData2075 <- c(Probability80,Probability100)
-#   } else {
-#     ProbabilityData2075 <- rbind(ProbabilityData2075,c(Probability80,Probability100))
-#   }
-# }
-# 
-# colnames(ProbabilityData2050) <- c('80% FR', '100% FR')
-# rownames(ProbabilityData2050) <- ScenarioNames
-# colnames(ProbabilityData2075) <- c('80% FR', '100% FR')
-# rownames(ProbabilityData2075) <- ScenarioNames
-# 
-# # #plot the graph
-# # barplot(ProbabilityData2075, main="Probability of achieving Funded Status after 30 years",
-# #         xlab='Supplemental Contributions',
-# #         legend = ScenarioNames, beside=TRUE)
-# 
-# end_time <- Sys.time()
-# print(end_time - start_time)
+#Simulations
+start_time <- Sys.time()
+#Set seed insures a consistency when simulations are run multiple times
+set.seed((1234))
+NumberofSimulations <- 10
+#initialize the return simulations based on years and # of simulations
+Returns_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
+UAL_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
+FR_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
+ER_Sims <- matrix(1:length(FYE),nrow = length(FYE), ncol = NumberofSimulations + 1)
+
+#Run the simulations
+for (i in 1:NumberofSimulations){
+  NewData <- RunModel(ERPolicyCurrentHires = 'Statutory Rate', 
+                      ERPolicyNewHires = 'Statutory Rate', 
+                      Analysis_Type = 'Stochastic')
+  
+  Returns_Sims[,i+1] <- NewData$ROA_MVA
+  UAL_Sims[,i+1] <- NewData$UAL_MVA_InflAdj
+  FR_Sims[,i+1] <- NewData$FR_MVA
+  ER_Sims[,i+1] <- NewData$ER_Percentage
+}
+
+Simulations_Returns <- cbind(FYE,FYE,FYE)
+Simulations_UAL <- cbind(FYE,FYE,FYE)
+Simulations_FR <- cbind(FYE,FYE,FYE)
+Simulations_ER <- cbind(FYE,FYE,FYE)
+
+#Get the 25th, 50th, 75th percentile
+for(i in 1:length(FYE)){
+  Simulations_Returns[i,] <- t(quantile(Returns_Sims[i,2:ncol(Returns_Sims)],c(0.25,0.5,0.75)))
+  Simulations_UAL[i,] <- t(quantile(UAL_Sims[i,2:ncol(UAL_Sims)],c(0.25,0.5,0.75)))
+  Simulations_FR[i,] <- t(as.data.frame(quantile(FR_Sims[i,2:ncol(FR_Sims)],c(0.25,0.5,0.75))))
+  Simulations_ER[i,] <- t(quantile(ER_Sims[i,2:ncol(ER_Sims)],c(0.25,0.5,0.75)))
+}
+
+#plot the graphs
+SimulationPlot <- function(Data, FYE){
+  Data <- (as.data.frame(Data))
+  Data <- cbind(FYE, Data)
+  colnames(Data) <- c('FYE','25th Percentile', '50th Percentile', '75th Percentile')
+  ggplot(Data, aes(x = Data[,1])) +
+    geom_line(aes(y = Data[,2]), color = "#FF6633", size = 2) +
+    geom_line(aes(y = Data[,3]), color = "#FFCC33", size = 2) +
+    geom_line(aes(y = Data[,4]), color = "#0066CC", size = 2)
+}
+#SimulationPlot(Simulations_FR, FYE)
+
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
